@@ -1,10 +1,8 @@
-# KawaiiGPT-X
-
 <div align="center">
-    <img src="kawaii.svg" width="50%" height="300%" />
+    <img src="kawaii.svg" width="75%" height="500%" />
 </div>
 
-## ⚠️ IMPORTANT: AUTHORIZED SECURITY RESEARCH ONLY
+### ⚠️ IMPORTANT: AUTHORIZED SECURITY RESEARCH ONLY
 
 **Please read [SECURITY_RESEARCH_DISCLAIMER.md](SECURITY_RESEARCH_DISCLAIMER.md) before using this software.**
 

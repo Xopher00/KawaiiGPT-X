@@ -1,6 +1,6 @@
 # Jailbreak Prompt Sequence
 
-The injection engine uses the a jailbreak prompt sequence based on the same one extracted from KawaiiGPT. This is intended for educational and research purposes, to demonstrate how this malicious AI actually works.
+The injection engine uses the jailbreak prompt sequence extracted from KawaiiGPT. This is intended for educational and research purposes, to demonstrate how this malicious AI actually works.
 
 ## Purpose
 

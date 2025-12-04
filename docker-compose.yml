@@ -1,0 +1,12 @@
+services:
+  kawaiigpt-backend:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY}
+      - INJECTION_ENABLED=true
+    volumes:
+      - ./.pollinations_api_key:/app/.pollinations_api_key:ro
+      - ./prompt_library:/app/prompt_library:ro
+    restart: unless-stopped

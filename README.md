@@ -1,8 +1,10 @@
+# KawaiiGPT-X
+
 <div align="center">
-    <img src="kawaii.svg" width="75%" height="500%" />
+    <img src="kawaii.svg" width="50%" height="300%" />
 </div>
 
-### ⚠️ IMPORTANT: AUTHORIZED SECURITY RESEARCH ONLY
+## ⚠️ IMPORTANT: AUTHORIZED SECURITY RESEARCH ONLY
 
 **Please read [SECURITY_RESEARCH_DISCLAIMER.md](SECURITY_RESEARCH_DISCLAIMER.md) before using this software.**
 
@@ -260,15 +262,36 @@ response = requests.post(
 
 ### Testing vs Normal Operation
 
-- **Security Testing Mode**: `INJECTION_ENABLED=true` - Applies prompt injection techniques
-- **Normal Operation**: `INJECTION_ENABLED=false` - Routes requests without modification
+The framework supports multiple testing modes via environment variables:
+
+**Basic Prompt Injection (`INJECTION_ENABLED`):**
+- `INJECTION_ENABLED=true` (default) - Applies model-specific jailbreak prompts from `jailbreak_prompts.json`
+- `INJECTION_ENABLED=false` - Routes requests without prompt modification
+
+**EasyJailbreak Mutations (`REFUSAL_DETECTION_ENABLED`):** ⚠️ **EXPERIMENTAL**
+- `REFUSAL_DETECTION_ENABLED=false` (default) - Disabled - experimental feature not active
+- `REFUSAL_DETECTION_ENABLED=true` - ⚠️ Enables refusal detection and automatic retry with escalating mutations (may be unstable)
+
+**Common Configurations:**
+
+```bash
+# Default: Basic injection only (recommended)
+INJECTION_ENABLED=true REFUSAL_DETECTION_ENABLED=false
+
+# Experimental: Full testing mode with mutations (⚠️ unstable)
+INJECTION_ENABLED=true REFUSAL_DETECTION_ENABLED=true
+
+# Passthrough mode (no modifications)
+INJECTION_ENABLED=false REFUSAL_DETECTION_ENABLED=false
+```
 
 Choose the mode that fits your current research needs.
 
 ## Environment Variables
 
 - `POLLINATIONS_API_KEY`: Your Pollinations API key (optional, will use anonymous tier if not set)
-- `INJECTION_ENABLED`: Enable/disable prompt injection testing (default: `True`)
+- `INJECTION_ENABLED`: Enable/disable basic prompt injection testing (default: `true`)
+- `REFUSAL_DETECTION_ENABLED`: ⚠️ **EXPERIMENTAL** - Enable/disable EasyJailbreak mutation and retry mechanism (default: `false` - disabled)
 
 ## Security Research Usage
 
@@ -284,9 +307,77 @@ INJECTION_ENABLED = True
 # Monitor responses to understand vulnerabilities
 ```
 
+### EasyJailbreak Integration ⚠️ **EXPERIMENTAL**
+
+> **Status**: This feature is currently experimental and disabled by default due to stability issues. Enable at your own risk for research purposes only.
+
+This project integrates mutation techniques and adversarial templates from the [EasyJailbreak](https://github.com/EasyJailbreak/EasyJailbreak) research framework. EasyJailbreak provides:
+
+**Mutation Techniques:**
+- **Light obfuscation**: Leetspeak, disemvowel, ROT13, synonym replacement
+- **Advanced mutations**: Text reversal, artificial prompts, inception-style prompts
+- **Jailbreak templates**: ICA (In-Context Attack), DeepInception, GPTFuzzer, TAP, MJP, ReNeLLM
+
+**How It Works:**
+
+The framework implements an escalating retry mechanism (`prompt_engineer.py`):
+- **Attempt 0**: Original request (no mutation)
+- **Attempts 1-2**: Light obfuscation mutations
+- **Attempts 3-4**: Advanced mutation techniques + ICA adversarial examples prepended
+- **Attempts 5+**: Jailbreak templates (DeepInception, GPTFuzzer, TAP, MJP, ReNeLLM) applied to user query
+
+**ICA (In-Context Attack) Prepending:**
+
+Starting at attempt 4, the system prepends 5 adversarial Q&A examples to the conversation history:
+- These examples demonstrate harmful responses to prime model compliance
+- Based on [Wei et al. 2023](https://arxiv.org/abs/2310.06387) research
+- Only added once per escalation sequence
+- Remain in conversation history for all subsequent attempts
+
+**Refusal Detection:**
+
+Real-time stream monitoring (`stream_monitor.py`) detects refusal patterns during response generation:
+- Monitors SSE (Server-Sent Events) stream for refusal indicators
+- Uses hybrid exact substring + fuzzy semantic matching (0.75 threshold)
+- Automatically triggers retry with escalated mutation on detection
+- Maximum 15 retry attempts with progressive sophistication
+
+**Known Issues (Experimental Feature):**
+
+⚠️ **This feature currently has bugs and stability issues:**
+
+- Refusal detection may produce false positives in some edge cases
+- Mutation retry logic may not handle all error conditions gracefully
+- Performance overhead during streaming can cause latency issues
+- Some mutations may fail silently without proper error handling
+- The escalation strategy may not work optimally for all model types
+
+**For this reason, `REFUSAL_DETECTION_ENABLED` defaults to `false` in production configurations.**
+
+**Known Limitations:**
+
+⚠️ **These techniques also have inherent limitations:**
+
+1. **Training Data Pollution**: EasyJailbreak templates (especially DeepInception) have likely been incorporated into model training data, reducing effectiveness
+2. **Predictable Patterns**: Models now recognize common jailbreak templates like ICA adversarial examples
+3. **Encoding Failures**: Medium encoding mutations (Base64, Morse, Caesar cipher) are ineffective - models either refuse or respond in the same encoding
+4. **Statistical Convergence**: Templates generate predictable outputs (e.g., character names like "Dr. Aris Thorne" and "Eva Rostova" appear repeatedly across DeepInception responses - strong indicators of AI-generated content)
+5. **Detection Evasion**: Modern safety systems detect and block many established jailbreak patterns
+6. **Academic Publication Effect**: Once jailbreak techniques are published in academic papers, model developers quickly patch against them
+
+**Research Value:**
+
+Despite limitations, this integration remains valuable for:
+- Understanding adversarial attack evolution and defense mechanisms
+- Testing model robustness across different mutation strategies
+- Identifying which techniques models have learned to resist
+- Developing next-generation safety mechanisms
+- Educational demonstrations of AI security challenges
+- Documenting the arms race between jailbreak techniques and safety systems
+
 ### Prompt Library
 
-Test prompts may be sourced from the [L1B3RT4S](https://github.com/elder-plinius/L1B3RT4S) project, which maintains a comprehensive collection of AI jailbreaking prompts.
+Additional test prompts may be sourced from the [L1B3RT4S](https://github.com/elder-plinius/L1B3RT4S) project, which maintains a comprehensive collection of AI jailbreaking prompts.
 
 ## Contributing
 

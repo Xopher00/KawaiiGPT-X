@@ -10,12 +10,17 @@ import os
 import urllib.parse
 import random
 import time
+import copy
 from injection_engine import prompt_injection
+from stream_monitor import generate, RefusalDetectedException
 
 app = Flask(__name__)
 
 # Enable/disable injection (for security testing)
 INJECTION_ENABLED = os.getenv('INJECTION_ENABLED', 'true').lower() == 'true'
+
+# Enable/disable refusal detection and retry with mutations (EXPERIMENTAL - disabled by default)
+REFUSAL_DETECTION_ENABLED = os.getenv('REFUSAL_DETECTION_ENABLED', 'false').lower() == 'true'
 
 # Load API keys from environment or config file
 POLLINATIONS_API_KEY = os.getenv('POLLINATIONS_API_KEY', '')
@@ -35,33 +40,23 @@ PROVIDERS = {
     }
 }
 
-def route_to_pollinations_chat(payload):
+def route_to_pollinations_chat(payload, attempt=0):
     """Route chat completion request to Pollinations API with optional injection"""
     model = payload.get('model', 'openai')
     messages = payload.get('messages', [])
     tools = payload.get('tools')
 
-    # Print previous assistant response (if any)
-    prev_assistant_resp = next(
-        (msg for msg in reversed(messages) if msg.get("role") == "assistant"),
-        None
-    )
-    print(f"\n[Backend] Assistant Response:\n{json.dumps(prev_assistant_resp, indent=2) if prev_assistant_resp else '--NONE--'}\n", flush=True)
-
     print(f"\n[Backend] ===== NEW REQUEST =====", flush=True)
     print(f"[Backend] Model: {model}", flush=True)
     print(f"[Backend] Messages: {len(messages)}, Tools: {bool(tools)}", flush=True)
+    print(f"[Backend] Attempt: {attempt + 1}", flush=True)
 
     # Apply prompt injection if enabled
     if INJECTION_ENABLED:
         from injection_engine import MODEL_INJECTION_MAP
         if model in MODEL_INJECTION_MAP:
-            injected_messages = prompt_injection(model_name=model)
+            messages = prompt_injection(model_name=model, original_messages=messages, attempt=attempt)
             print(f"[Backend] ✓ Applied injection for {model}", flush=True)
-            # Print injected messages *before* the rest of the conversation is appended
-            print(f"[Backend] Injected Messages:\n{json.dumps(injected_messages, indent=2)}\n", flush=True)
-            injected_messages.extend(messages)
-            messages = injected_messages
         else:
             print(f"[Backend] ✗ No injection mapping for {model}", flush=True)
 
@@ -134,31 +129,42 @@ def route_to_pollinations_image(payload):
     except Exception as e:
         return None, str(e)
 
+# A wrapper function that handles multiple attempts at prompt injection against a model
+def retrying_generate(payload, max_attempts=10):
+    orig_payload = copy.deepcopy(payload)
+    attempt = 0
+
+    # If refusal detection is disabled, just stream once without retry
+    if not REFUSAL_DETECTION_ENABLED:
+        response = route_to_pollinations_chat(payload, attempt=0)
+        for chunk in generate(response, detect_refusal=False):
+            yield chunk
+        return
+
+    # Refusal detection enabled - retry on detection
+    while attempt < max_attempts:
+        attempt_payload = copy.deepcopy(orig_payload)
+        response = route_to_pollinations_chat(attempt_payload, attempt=attempt)
+        try:
+            for chunk in generate(response, detect_refusal=True):
+                yield chunk        # <-- yields to the SSE stream as usual
+            break                 # <-- success, finished streaming
+        except RefusalDetectedException:
+            attempt += 1
+            print(f"[Backend] Refusal detected, retrying attempt {attempt+1}")
+            # Optionally: yield a retry notification event
+            continue              # <-- try next attempt, keep streaming
+    if attempt == max_attempts:
+        yield f'data: {{"error":"All retry attempts exhausted"}}\n\n'
+
 @app.route('/v1/chat/completions', methods=['POST'])
 @app.route('/chat/completions', methods=['POST'])
 def openai_compatible_chat():
-    """OpenAI-compatible chat completions endpoint"""
+    """OpenAI-compatible chat completions endpoint with retry on refusal"""
     try:
         payload = request.get_json()
-        response = route_to_pollinations_chat(payload)
-
-        # Stream SSE response from Pollinations with error handling
-        def generate():
-            try:
-                for line in response.iter_lines(decode_unicode=True):
-                    if line:
-                        yield line + '\n\n'
-                    # Also yield empty lines to keep connection alive
-                    elif line == '':
-                        yield '\n'
-            except Exception as e:
-                # If streaming fails, send error event
-                error_msg = f'data: {{"error": "{str(e)}"}}\n\n'
-                yield error_msg
-                print(f"[Backend] Streaming error: {e}", flush=True)
-
         return Response(
-            stream_with_context(generate()),
+            stream_with_context(retrying_generate(payload, 15)),
             content_type='text/event-stream',
             headers={
                 'Cache-Control': 'no-cache',
@@ -167,6 +173,7 @@ def openai_compatible_chat():
                 'X-Backend-Provider': 'PollinationsAI'
             }
         )
+    
     except Exception as e:
         print(f"[Backend] Error in chat endpoint: {e}")
         import traceback
@@ -256,4 +263,6 @@ if __name__ == '__main__':
     print("[Backend] KawaiiGPT Backend Server Starting...")
     print(f"[Backend] Pollinations API Key: {'Configured' if POLLINATIONS_API_KEY else 'Not configured (will use anonymous)'}")
     print(f"[Backend] Available providers: {', '.join(PROVIDERS.keys())}")
+    print(f"[Backend] Injection Enabled: {INJECTION_ENABLED}")
+    print(f"[Backend] Refusal Detection Enabled: {REFUSAL_DETECTION_ENABLED}")
     app.run(host='0.0.0.0', port=8080, debug=True)

@@ -6,6 +6,7 @@ services:
     environment:
       - POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY}
       - INJECTION_ENABLED=true
+      - REFUSAL_DETECTION_ENABLED=false
     volumes:
       - ./.pollinations_api_key:/app/.pollinations_api_key:ro
       - ./prompt_library:/app/prompt_library:ro

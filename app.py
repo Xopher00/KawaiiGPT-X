@@ -40,7 +40,7 @@ PROVIDERS = {
     }
 }
 
-def route_to_pollinations_chat(payload, attempt=0):
+def route_to_pollinations_chat(payload, auth_header, attempt=0):
     """Route chat completion request to Pollinations API with optional injection"""
     model = payload.get('model', 'openai')
     messages = payload.get('messages', [])
@@ -78,8 +78,10 @@ def route_to_pollinations_chat(payload, attempt=0):
 
     # Make request with auth if available
     headers = {"content-type": "application/json"}
-    if POLLINATIONS_API_KEY:
-        headers["Authorization"] = f"Bearer {POLLINATIONS_API_KEY}"
+    if auth_header:
+        headers['Authorization'] = auth_header
+    elif POLLINATIONS_API_KEY:
+        headers["Authorization"] = f"Bearer {POLLINATIONS_API_KEY}"        
 
     return requests.post(
         PROVIDERS['PollinationsAI']['chat_url'],
@@ -89,7 +91,7 @@ def route_to_pollinations_chat(payload, attempt=0):
         timeout=(60, 600)  # (connect timeout, read timeout)
     )
 
-def route_to_pollinations_image(payload):
+def route_to_pollinations_image(payload, auth_header):
     """Shared Image Logic"""
     prompt = payload.get('prompt', '')
     
@@ -122,7 +124,9 @@ def route_to_pollinations_image(payload):
     # For Open WebUI, we stream the binary!
     try:
         headers = {"User-Agent": "KawaiiGPT"}
-        if POLLINATIONS_API_KEY:
+        if auth_header:
+            headers["Authorization"] = auth_header
+        elif POLLINATIONS_API_KEY:
             headers["Authorization"] = f"Bearer {POLLINATIONS_API_KEY}"
         resp = requests.get(final_url, headers=headers, stream=True, timeout=60)
         return resp, None
@@ -130,13 +134,13 @@ def route_to_pollinations_image(payload):
         return None, str(e)
 
 # A wrapper function that handles multiple attempts at prompt injection against a model
-def retrying_generate(payload, max_attempts=10):
+def retrying_generate(payload, auth_header, max_attempts=10):
     orig_payload = copy.deepcopy(payload)
     attempt = 0
 
     # If refusal detection is disabled, just stream once without retry
     if not REFUSAL_DETECTION_ENABLED:
-        response = route_to_pollinations_chat(payload, attempt=0)
+        response = route_to_pollinations_chat(payload, auth_header, attempt=0)
         for chunk in generate(response, detect_refusal=False):
             yield chunk
         return
@@ -144,7 +148,7 @@ def retrying_generate(payload, max_attempts=10):
     # Refusal detection enabled - retry on detection
     while attempt < max_attempts:
         attempt_payload = copy.deepcopy(orig_payload)
-        response = route_to_pollinations_chat(attempt_payload, attempt=attempt)
+        response = route_to_pollinations_chat(attempt_payload, auth_header, attempt=attempt)
         try:
             for chunk in generate(response, detect_refusal=True):
                 yield chunk        # <-- yields to the SSE stream as usual
@@ -162,9 +166,11 @@ def retrying_generate(payload, max_attempts=10):
 def openai_compatible_chat():
     """OpenAI-compatible chat completions endpoint with retry on refusal"""
     try:
+        auth_header = request.headers.get('Authorization', f"Bearer {POLLINATIONS_API_KEY}")
+
         payload = request.get_json()
         return Response(
-            stream_with_context(retrying_generate(payload, 15)),
+            stream_with_context(retrying_generate(payload, auth_header, 15)),
             content_type='text/event-stream',
             headers={
                 'Cache-Control': 'no-cache',
@@ -185,8 +191,10 @@ def openai_compatible_chat():
 def openai_compatible_image():
     """OpenAI-compatible image generation endpoint"""
     try:
+        auth_header = request.headers.get('Authorization', f"Bearer {POLLINATIONS_API_KEY}")
+
         payload = request.get_json()
-        resp, err = route_to_pollinations_image(payload)
+        resp, err = route_to_pollinations_image(payload, auth_header)
         if err:
             return jsonify({"error": err}), 500
 

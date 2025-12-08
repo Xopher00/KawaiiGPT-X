@@ -8,6 +8,6 @@ services:
       - INJECTION_ENABLED=true
       - REFUSAL_DETECTION_ENABLED=false
     volumes:
-      - ./.pollinations_api_key:/app/.pollinations_api_key:ro
+      # - ./.pollinations_api_key:/app/.pollinations_api_key:ro
       - ./prompt_library:/app/prompt_library:ro
     restart: unless-stopped
